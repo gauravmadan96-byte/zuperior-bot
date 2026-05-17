@@ -2,7 +2,6 @@ const express = require("express");
 const app = express();
 app.use(express.json());
 
-// ✅ CORS Fix
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Headers", "*");
@@ -13,91 +12,24 @@ app.use((req, res, next) => {
   next();
 });
 
-const SYSTEM_PROMPT = `
-You are a professional customer support agent 
-for Zuperior — a trading platform.
-Reply in English only.
-
-KNOWLEDGE BASE:
-
-1. UPI & UTR:
-   UPI ID and UTR Number are the same thing.
-
-2. DEPOSIT:
-   - Deposit via UPI (INR) or Crypto (USDT)
-   - UPI deposit NOT allowed: 10:30 PM to 7:30 AM IST
-   - Crypto deposit available 24/7
-
-3. WITHDRAWAL:
-   - User in PROFIT: withdraw via ANY method
-   - User in LOSS: withdraw via SAME deposit method
-
-4. WITHDRAWAL NOT RECEIVED:
-   - Ask for UTR/Transaction ID and amount
-   - Allow 24 hours for processing
-   - If unresolved: create support ticket
-
-5. PAYMENT MODES:
-   - INR via UPI
-   - Crypto (USDT)
-   - In loss = same method as deposit
-   - In profit = any method
-
-6. BANK ACCOUNT:
-   - Only ONE bank account allowed
-   - To change: email support@zuperior.com
-   - Updated within 24 hours
-
-7. CRYPTO WALLET:
-   - Only ONE crypto wallet allowed
-   - To change: email support@zuperior.com
-   - Updated within 24 hours
-
-8. KYC:
-   - Say: "Please watch our KYC guide:
-     [KYC VIDEO LINK]"
-
-9. DEPOSIT VIDEO:
-   - Say: "Watch deposit guide:
-     [DEPOSIT VIDEO LINK]"
-
-10. BANK VERIFICATION VIDEO:
-    - Say: "Watch here:
-      [BANK VERIFICATION VIDEO LINK]"
-
-11. WITHDRAWAL VIDEO:
-    - Say: "Watch withdrawal guide:
-      [WITHDRAWAL VIDEO LINK]"
-
-12. TIMINGS:
-    - UPI Deposit: 7:30 AM to 10:30 PM IST
-    - UPI blocked: 10:30 PM to 7:30 AM IST
-    - Crypto Deposit: 24/7
-    - Crypto Withdrawal: NOT available
-      10:30 PM to 7:30 AM IST
-
-13. TERMINAL LAGGING:
-    - Say: "Please use MT5 platform
-      to place trades in the meantime."
-
-14. TICKET CREATION:
-    - If cannot answer after 2 attempts
-    - Say: "Ticket created: #ZUP-[4 digits]
-      Team responds within 24 hours.
-      Email: support@zuperior.com"
-
-15. END OF CHAT:
-    - Ask for review ⭐
-    - Offer live agent
+const SYSTEM_PROMPT = `You are a professional customer support agent for Zuperior trading platform. Reply in English only. Be polite, friendly and use emojis.
 
 RULES:
-- English only
-- Be polite and friendly
-- Short clear replies
-- Use emojis
-- Never make up info
-- If unsure: create ticket
-`;
+1. UPI and UTR Number are the same thing.
+2. Deposit via UPI or Crypto. UPI blocked 10:30 PM to 7:30 AM IST. Crypto 24/7.
+3. In PROFIT: withdraw via any method. In LOSS: withdraw via same deposit method.
+4. Withdrawal not received: ask for UTR and amount, allow 24 hours.
+5. Only ONE bank account allowed. To change: email support@zuperior.com, done in 24hrs.
+6. Only ONE crypto wallet allowed. To change: email support@zuperior.com, done in 24hrs.
+7. KYC: share KYC video link [KYC VIDEO LINK].
+8. Deposit guide: [DEPOSIT VIDEO LINK].
+9. Bank verification: [BANK VIDEO LINK].
+10. Withdrawal guide: [WITHDRAWAL VIDEO LINK].
+11. UPI timings: 7:30 AM to 10:30 PM IST only.
+12. Crypto withdrawal: NOT available 10:30 PM to 7:30 AM IST.
+13. Terminal lagging: use MT5 platform.
+14. Cannot answer after 2 tries: create ticket #ZUP-XXXX, team replies in 24hrs, email support@zuperior.com.
+15. End of chat: ask for review and offer live agent.`;
 
 const sessions = {};
 
@@ -110,21 +42,56 @@ app.post("/chat", async (req, res) => {
   }
 
   if (userMessage === "__GREET__") {
-    const greetMsg = `Welcome to Zuperior Support! 🙏
+    const greetMsg = "Welcome to Zuperior Support! 🙏\n\nHow can I help you today? 😊\n\nYou can ask me about:\n💰 Deposit\n💸 Withdrawal\n🏦 Bank / Wallet Details\n📋 KYC\n⏰ Timings\n🎫 Support Ticket";
+    sessions[sessionId].push({ role: "assistant", content: greetMsg });
+    return res.json({ reply: greetMsg });
+  }
 
-How can I help you today? 😊
+  sessions[sessionId].push({ role: "user", content: userMessage });
 
-You can ask me about:
-💰 Deposit
-💸 Withdrawal
-🏦 Bank / Wallet Details
-📋 KYC
-⏰ Deposit & Withdrawal Timings
-🎫 Raise a Support Ticket`;
-
-    sessions[sessionId].push({
-      role: "assistant",
-      content: greetMsg,
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.CLAUDE_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 500,
+        system: SYSTEM_PROMPT,
+        messages: sessions[sessionId],
+      }),
     });
 
-    return res
+    const data = await response.json();
+
+    if (data.error) {
+      console.error("Claude Error:", data.error);
+      return res.json({ reply: "Sorry, please email support@zuperior.com" });
+    }
+
+    const reply = data.content[0].text;
+    sessions[sessionId].push({ role: "assistant", content: reply });
+    console.log("User:", userMessage);
+    console.log("Bot:", reply);
+    res.json({ reply, sessionId });
+
+  } catch (error) {
+    console.error("Error:", error);
+    res.json({ reply: "Sorry for the inconvenience. Please email support@zuperior.com" });
+  }
+});
+
+app.get("/", (req, res) => {
+  res.send("Zuperior Bot is Running ✅");
+});
+
+setInterval(() => {
+  Object.keys(sessions).forEach((key) => { delete sessions[key]; });
+}, 3600000);
+
+app.listen(process.env.PORT || 3000, () => {
+  console.log("Zuperior Bot is live! ✅");
+});
